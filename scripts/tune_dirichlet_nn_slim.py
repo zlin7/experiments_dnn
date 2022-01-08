@@ -14,7 +14,6 @@ from os.path import join
 import os
 import gc
 
-from dirichlet import FullDirichletCalibrator
 from utility.unpickle_probs import unpickle_probs
 from utility.evaluation import evaluate, evaluate_rip
 
@@ -26,10 +25,12 @@ import argparse
 
 from calibration.cal_methods import Dirichlet_NN, softmax, LogisticCalibration
 #import keras.backend as K
-import tensorflow as tf
-import keras.backend.tensorflow_backend
+#import tensorflow as tf
+#import keras.backend.tensorflow_backend
 
 from sys import getsizeof
+
+import ipdb
 
 
 from keras import backend as K
@@ -125,11 +126,14 @@ def get_test_scores2(models, probs, true):
         
     for mod in models:
         preds.append(mod.predict(probs))
-        
-    return evaluate_rip(np.mean(preds, axis=0), y_true=true, verbose=False)
+
+    preds = np.mean(preds, axis=0)
+    return evaluate_rip(preds, y_true=true, verbose=False), preds
     
 
-def tune_dir_nn(path, files, lambdas, mus, k_folds = 5, random_state = 15, verbose = True, double_learning = False, model_dir = "models_dump", loss_fn = "sparse_categorical_crossentropy", 
+def tune_dir_nn(FILE_PATH, lambdas, mus, k_folds = 5, random_state = 15, verbose = True, double_learning = False,
+                cache_path = None,
+                loss_fn = "sparse_categorical_crossentropy",
                 comp_l2 = True, use_logits = False, use_scipy = False):
     
     """
@@ -145,103 +149,63 @@ def tune_dir_nn(path, files, lambdas, mus, k_folds = 5, random_state = 15, verbo
         df (pandas.DataFrame): dataframe with calibrated and uncalibrated results for all the input files.
     
     """
-    
-    df_columns=["Name", "L2", "mu", "Error", "ECE", "ECE2", "ECE_CW", "ECE_CW2", "ECE_FULL", "ECE_FULL2", "MCE", "MCE2", "Loss", "Brier", "Loss_std", "Brier_std", 
-               "Error_test", "ECE_test", "ECE2_test", "ECE_CW_test", "ECE_CW2_test", "ECE_FULL_test", "ECE_FULL2_test", "MCE_test", "MCE2_test", "Loss_test", "Brier_test"]
-    
+
     results = []
     results2 = []
-    
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-    
-    total_t1 = time.time()
-    
-    for i, f in enumerate(files):
-        
-        name = "_".join(f.split("_")[1:-1])
-        print(name)
-        t1 = time.time()
 
-        # Read in the data
-        FILE_PATH = join(path, f)
-        (logits_val, y_val), (logits_test, y_test) = unpickle_probs(FILE_PATH)
-              
-        # Convert into probabilities
-        if use_logits:
-            input_val = logits_val
-            input_test = logits_test
-        else:
-            input_val = softmax(logits_val)  # Softmax logits
-            input_test = softmax(logits_test)
+    # Read in the data
+    #(logits_val, y_val), (logits_test, y_test) = unpickle_probs(FILE_PATH)
+    (logits_val, y_val), (logits_test, y_test) = pd.read_pickle(FILE_PATH)
+    # Convert into probabilities
+    if use_logits:
+        input_val = logits_val
+        input_test = logits_test
+    else:
+        input_val = softmax(logits_val)  # Softmax logits
+        input_test = softmax(logits_test)
         
-        error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier = evaluate_rip(softmax(logits_test), y_test, verbose=False)  # Uncalibrated results
-        print("Uncal: Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier))        
-        
-        #Loop over lambdas to test
-        for l2 in lambdas:            
-            for mu in mus:                
-            #Cross-validation
-            
-                if mu is None:
-                    mu = l2
-            
-                if use_scipy:
-                    temp_res = kf_model(input_val, y_val, LogisticCalibration, {"C":np.true_divide(1, l2), }, k_folds=k_folds, random_state=random_state, verbose=verbose)
+    error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier = evaluate_rip(softmax(logits_test), y_test, verbose=False)  # Uncalibrated results
+    print("Uncal: Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier))
+
+    temp_dir = cache_path.replace(".pkl", "")
+    if not os.path.isdir(temp_dir): os.makedirs(temp_dir)
+    for l2 in lambdas:
+        for mu in mus:
+        #Cross-validation
+            if mu is None:
+                mu = l2
+
+            starttime = time.time()
+            temp_cache_path = os.path.join(temp_dir, f'{l2}_{mu}.pkl')
+            if os.path.isfile(temp_cache_path):
+                print(temp_cache_path, "is done")
+                continue
+
+            if use_scipy:
+                temp_res = kf_model(input_val, y_val, LogisticCalibration, {"C":np.true_divide(1, l2), }, k_folds=k_folds, random_state=random_state, verbose=verbose)
+            else:
+                if k_folds > 1:
+                    temp_res = kf_model(input_val, y_val, Dirichlet_NN, {"l2":l2, "mu":mu, "patience":15, "loss":loss_fn, "double_fit":double_learning, "comp":comp_l2, "use_logits":use_logits},
+                                    k_folds=k_folds, random_state=random_state, verbose=verbose)
                 else:
-                    if k_folds > 1:
-                        temp_res = kf_model(input_val, y_val, Dirichlet_NN, {"l2":l2, "mu":mu, "patience":15, "loss":loss_fn, "double_fit":double_learning, "comp":comp_l2, "use_logits":use_logits}, 
-                                        k_folds=k_folds, random_state=random_state, verbose=verbose)    
-                    else:
-                        temp_res = one_model(input_val, y_val, Dirichlet_NN, {"l2":l2, "mu":mu, "patience":15, "loss":loss_fn, "double_fit":double_learning, "comp":comp_l2, "use_logits":use_logits}, 
-                                        k_folds=k_folds, random_state=random_state, verbose=verbose)  
-                                    
-                (models, ((avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier), (std_loss, std_brier))) = temp_res  
+                    temp_res = one_model(input_val, y_val, Dirichlet_NN, {"l2":l2, "mu":mu, "patience":15, "loss":loss_fn, "double_fit":double_learning, "comp":comp_l2, "use_logits":use_logits},
+                                    k_folds=k_folds, random_state=random_state, verbose=verbose)
 
-                # TODO separate function for pickling models and results
-                now = datetime.datetime.now()
-                fname = "data_results_keras_NN_%s_l2=%5f_mu=%5f_%s_%s.p" % (name, l2, mu, loss_fn, now.strftime("%Y_%m_%d_%H_%M_%S"))
-                    
-                model_weights = []
-                for mod in models:
-                    if not use_scipy:
-                        model_weights.append(mod.model.get_weights())
-                    else:
-                        model_weights.append([mod.coef_, mod.intercept_])
-                    
-                with open(join(model_dir, fname), "wb") as f:
-                        pickle.dump((model_weights, temp_res[1], (name, l2, mu)), f)
+            (models, ((avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier), (std_loss, std_brier))) = temp_res
 
-                print("L2 = %f, Mu= %f, Validation Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (l2, mu, avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier)) 
-                
-                error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier = get_test_scores(models, input_test, y_test)
-                print("L2 = %f, Mu= %f, Test Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (l2, mu, error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier))                             
-                results.append([name, l2, mu, avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier, std_loss, std_brier, error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier])
-                
-                print("Ensambled results:")
-                error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier = get_test_scores2(models, input_test, y_test)
-                print("L2 = %f, Mu= %f, Test Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (l2, mu, error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier)) 
-                results2.append([name, l2, mu, avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier, std_loss, std_brier, error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier])
-                                
-                
-                # Garbage collection, I had some issues with newer version of Keras.
-                K.clear_session()
-                for mod in models:  # Delete old models and close class
-                    del mod
-                del models                
-                del temp_res
-                K.clear_session()                    
-                gc.collect()
+            print("L2 = %f, Mu= %f, Validation Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (l2, mu, avg_error, avg_ece, avg_ece2, avg_ece_cw, avg_ece_cw2, avg_ece_full, avg_ece_full2, avg_mce, avg_mce2, avg_loss, avg_brier))
 
-        
-        t2 = time.time()
-        print("Time taken:", (t2-t1), "\n")
-        
-    total_t2 = time.time()
-    print("Total time taken:", (total_t2-total_t1))
-    
-    df = pd.DataFrame(results, columns=df_columns)
-    df2 = pd.DataFrame(results2, columns=df_columns)
+            print("Ensambled results:")
+            (error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier), preds = get_test_scores2(models, input_test, y_test)
+            print("L2 = %f, Mu= %f, Test Error %f; ece %f; ece2 %f; ece_cw %f; ece_cw2 %f; ece_full %f; ece_full2 %f; mce %f; mce2 %f; loss %f; brier %f" % (l2, mu, error, ece, ece2, ece_cw, ece_cw2, ece_full, ece_full2, mce, mce2, loss, brier))
+            pd.to_pickle((avg_ece, avg_mce, avg_ece_cw, (time.time() - starttime), preds), temp_cache_path)
 
-        
-    return (df, df2)
+
+            # Garbage collection, I had some issues with newer version of Keras.
+            K.clear_session()
+            for mod in models:  # Delete old models and close class
+                del mod
+            del models
+            del temp_res
+            K.clear_session()
+            gc.collect()

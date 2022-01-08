@@ -23,11 +23,11 @@ from keras.layers import Lambda
 import keras.backend as K
 from keras import regularizers
 import keras
-from keras.utils import to_categorical
+from tensorflow.keras.utils import to_categorical
 from keras.layers import Layer
 from keras.layers import Activation
 
-from tensorflow import set_random_seed
+from tensorflow.python.framework.random_seed import set_random_seed
 
 from sklearn.linear_model import LogisticRegression
 
