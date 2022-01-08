@@ -46,9 +46,9 @@ def get_default_hyperparams(nclass):
 
 
 
-def main_Matrix_ODIR(dataset, filename='key_0.pkl'):
-    lambdas, mus = get_default_hyperparams(NUM_CLASSES[dataset])
-
+def main_Matrix_ODIR(dataset, filename='key_0.pkl', lambda_mus=None):
+    if lambda_mus is None: lambda_mus = get_default_hyperparams(NUM_CLASSES[dataset])
+    lambdas, mus = lambda_mus
     cache_path = os.path.join(WORKSPACE, dataset, filename.replace(".pkl", "_res.pkl"))
     if os.path.isfile(cache_path): return cache_path
     if not os.path.isdir(os.path.dirname(cache_path)): os.makedirs(os.path.dirname(cache_path))
@@ -58,11 +58,31 @@ def main_Matrix_ODIR(dataset, filename='key_0.pkl'):
                          cache_path = cache_path,
                          loss_fn='sparse_categorical_crossentropy', comp_l2 = True, use_logits = True, use_scipy = False)
     return cache_path
+"""
+IIIC:
+
+l2                                                   5000
+mu                                                  1e-05
+ece                                             0.0302041
+mce                                              0.217169
+cece                                            0.0276038
+time                                              43.4556
+path    /home/zhenlin4/gitRes/experiments_dnn/scripts/...
+Name: 336, dtype: object
+Uncal: Error 41.216534; ece 0.092226; ece2 -1.000000; ece_cw 0.075086; ece_cw2 -1.000000; ece_full -1.000000; ece_full2 -1.000000; mce 0.222955; mce2 -1.000000; loss 1.094224; brier 0.092201
+l2                                                   0.25
+mu                                                  0.001
+ece                                             0.0278159
+mce                                              0.128404
+cece                                            0.0231486
+time                                              34.9586
+"""
 
 if __name__ == '__main__':
     for i in range(10):
         #CIFAR-10
-        main_Matrix_ODIR(CIFAR10_NAME, f'ViTB16_timm-20211226_013412_{i}.pkl'); break
+        #main_Matrix_ODIR(CIFAR10_NAME, f'ViTB16_timm-20211226_013412_{i}.pkl',
+        #                 lambda_mus={0:None}.get(i, ([0.0001],[0.001])))
         #main_Matrix_ODIR(CIFAR10_NAME, f'MixerB16_timm-20220102_222852_{i}.pkl')
 
         #CIFAR-100
@@ -70,11 +90,12 @@ if __name__ == '__main__':
         #main_Matrix_ODIR(CIFAR100_NAME, f'MixerB16_timm-20220102_191050_{i}.pkl')
 
         #SVHN ViT
-        #main_Matrix_ODIR(SVHN_NAME, f'ViTB16_timm-20211226_235923_{i}.pkl')
+        #main_Matrix_ODIR(SVHN_NAME, f'ViTB16_timm-20211226_235923_{i}.pkl',
+        #                 lambda_mus={0:None}.get(i, ([0.0005],[0.1])))
         #main_Matrix_ODIR(SVHN_NAME, f'MixerB16_timm-20220103_085510_{i}.pkl')
 
         #IIIC
-        #main_Matrix_ODIR(IIICSup_NAME, f'CNNEncoder2D_IIIC-20211226_131303_{i}.pkl')
+        main_Matrix_ODIR(IIICSup_NAME, f'CNNEncoder2D_IIIC-20211226_131303_{i}.pkl')
 
         #ISRUC
         #main_Matrix_ODIR(ISRUC_NAME, f'CNNEncoder2D_ISRUC-20220102_225606_{i}.pkl')
