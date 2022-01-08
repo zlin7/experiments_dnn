@@ -62,7 +62,7 @@ def main_Matrix_ODIR(dataset, filename='key_0.pkl'):
 if __name__ == '__main__':
     for i in range(10):
         #CIFAR-10
-        #main_Matrix_ODIR(CIFAR10_NAME, f'ViTB16_timm-20211226_013412_{i}.pkl')
+        main_Matrix_ODIR(CIFAR10_NAME, f'ViTB16_timm-20211226_013412_{i}.pkl'); break
         #main_Matrix_ODIR(CIFAR10_NAME, f'MixerB16_timm-20220102_222852_{i}.pkl')
 
         #CIFAR-100
